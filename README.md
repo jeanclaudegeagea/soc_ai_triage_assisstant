@@ -184,7 +184,6 @@ Create a `.env` file in the `backend` directory:
 ```env
 # Groq API Configuration
 GROQ_API_KEY=<your-groq-api-key>
-GROQ_MODEL=mixtral-8x7b-32768  # or your preferred model
 
 # Optional: API Configuration
 API_HOST=0.0.0.0
