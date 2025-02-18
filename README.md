@@ -184,10 +184,6 @@ Create a `.env` file in the `backend` directory:
 ```env
 # Groq API Configuration
 GROQ_API_KEY=<your-groq-api-key>
-
-# Optional: API Configuration
-API_HOST=0.0.0.0
-API_PORT=8000
 ```
 
 ### Streamlit Configuration
