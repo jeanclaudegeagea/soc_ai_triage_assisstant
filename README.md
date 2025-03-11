@@ -284,5 +284,4 @@ For issues or questions, please contact the development team or open an issue in
 
 ---
 
-**Last Updated**: February 2, 2026  
 **Version**: 1.0.0
