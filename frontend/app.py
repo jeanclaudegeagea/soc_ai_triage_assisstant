@@ -16,9 +16,13 @@ from reportlab.platypus import (
 from reportlab.lib.units import inch
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from datetime import datetime
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 
-API_BASE = "http://localhost:8000/api/chat"
+API_BASE = os.getenv("API_URL")
 
 st.set_page_config(page_title="SOC AI Analysis Assistant", layout="wide")
 
