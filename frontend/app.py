@@ -16,7 +16,7 @@ from reportlab.platypus import (
 from reportlab.lib.units import inch
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from datetime import datetime
-import os
+# import os
 
 API_BASE = st.secrets["API_BASE"]
 
@@ -81,7 +81,7 @@ if analyze_clicked:
     else:
         with st.spinner("Analyzing logs..."):
             response = requests.post(
-                f"{API_BASE}/analyze",
+                 f"{API_BASE}/api/chat/analyze",
                 json={
                     "role": role,
                     "logs": logs_content,
