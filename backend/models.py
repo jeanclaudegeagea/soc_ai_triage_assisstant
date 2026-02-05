@@ -15,7 +15,6 @@ class AnalyzeResponse(BaseModel):
     attack_story: str
     explanation: str
     potential_impact: str
-    estimated_financial_impact: str
     recommendations: List[str]
     metrics: dict
 
