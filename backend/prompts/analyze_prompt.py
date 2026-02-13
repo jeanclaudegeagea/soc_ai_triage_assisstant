@@ -21,8 +21,7 @@ TASKS:
 4. Explain what happened (defensive narrative)
 5. Explain adapted strictly to the role
 6. Describe potential impact (role-relevant)
-7. Estimate financial/business impact (if role cares)
-8. Give defensive recommendations (role-actionable)
+7. Give defensive recommendations (role-actionable)
 
 OUTPUT STRICT JSON:
 {{
@@ -32,7 +31,6 @@ OUTPUT STRICT JSON:
   "attack_story": "",
   "explanation": "",
   "potential_impact": "",
-  "estimated_financial_impact": "",
   "recommendations": []
 }}
 

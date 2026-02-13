@@ -13,7 +13,7 @@ The SOC AI Triage Assistant is a full-stack application that helps security anal
 - **Pattern Detection**: Identify security patterns like brute force attacks, suspicious logins, etc.
 - **Ethical AI**: Built-in guardrails to ensure defensive-only usage
 - **Interactive Chat**: Continuous SOC-oriented conversations for deeper analysis
-- **Health Checks**: API health monitoring and service status
+- **Health Checks**: API health monitoring and service status.
 
 ## 🏗️ Project Structure
 

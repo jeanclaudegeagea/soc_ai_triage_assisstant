@@ -16,7 +16,7 @@ from reportlab.platypus import (
 from reportlab.lib.units import inch
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from datetime import datetime
-import os
+# import os
 
 API_BASE = st.secrets["API_BASE"]
 
@@ -81,7 +81,7 @@ if analyze_clicked:
     else:
         with st.spinner("Analyzing logs..."):
             response = requests.post(
-                f"{API_BASE}/analyze",
+                 f"{API_BASE}/analyze",
                 json={
                     "role": role,
                     "logs": logs_content,
@@ -284,13 +284,6 @@ def generate_pdf(report, role):
     elements.append(Paragraph(impact_text, body_style))
     elements.append(Spacer(1, 0.2 * inch))
 
-    # Financial Impact (if CEO)
-    if role.lower() == "ceo" and "estimated_financial_impact" in report:
-        elements.append(Paragraph("Estimated Financial Impact", subheading_style))
-        financial_text = report["estimated_financial_impact"].replace("\n", "<br/>")
-        elements.append(Paragraph(financial_text, body_style))
-        elements.append(Spacer(1, 0.2 * inch))
-
     elements.append(PageBreak())
 
     # ==================== TECHNICAL ANALYSIS ====================
@@ -481,10 +474,6 @@ if st.session_state.report:
 
         st.markdown("**Potential Impact**")
         st.write(report["potential_impact"])
-
-        if role.lower() == "ceo":
-            st.markdown("**Estimated Financial Impact**")
-            st.write(report["estimated_financial_impact"])
 
         st.markdown("**Defensive Recommendations**")
         for rec in report["recommendations"]:
