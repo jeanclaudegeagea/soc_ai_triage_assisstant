@@ -2,6 +2,8 @@ import streamlit as st
 import requests
 import pandas as pd
 from io import BytesIO
+import os
+from dotenv import load_dotenv
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -16,9 +18,11 @@ from reportlab.platypus import (
 from reportlab.lib.units import inch
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from datetime import datetime
-# import os
 
-API_BASE = st.secrets["API_BASE"]
+load_dotenv()
+
+
+API_BASE = os.getenv("API_URL")
 
 st.set_page_config(page_title="SOC AI Analysis Assistant", layout="wide")
 
@@ -81,7 +85,7 @@ if analyze_clicked:
     else:
         with st.spinner("Analyzing logs..."):
             response = requests.post(
-                 f"{API_BASE}/analyze",
+                f"{API_BASE}/analyze",
                 json={
                     "role": role,
                     "logs": logs_content,
