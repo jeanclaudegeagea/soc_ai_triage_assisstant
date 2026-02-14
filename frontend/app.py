@@ -27,7 +27,7 @@ API_BASE = os.getenv("API_URL")
 st.set_page_config(page_title="SOC AI Analysis Assistant", layout="wide")
 
 st.title("🛡️ SOC AI Analysis Assistant")
-st.caption("Ethical • Defensive • Role-Adaptive Security Analysis")
+st.caption("Ethical • Defensive • Role-Adaptive Security Analysis • Multi-Agent Powered")
 
 # -----------------------------
 # Session State
@@ -38,6 +38,9 @@ if "report" not in st.session_state:
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+if "full_analysis" not in st.session_state:
+    st.session_state.full_analysis = None
+
 # -----------------------------
 # Sidebar
 # -----------------------------
@@ -46,17 +49,20 @@ with st.sidebar:
 
     role = st.text_input(
         "Select your role",
+        value="SOC Analyst",
         placeholder="Explanation adapts to this role",
     )
 
     uploaded_files = st.file_uploader(
         "Upload log files", type=["txt", "log", "csv"], accept_multiple_files=True
     )
-
-    # detected_pattern = st.text_input(
-    #     "Detected pattern (optional)",
-    #     placeholder="e.g. brute force, suspicious login",
-    # )
+    
+    # Add pattern selection for focused analysis
+    pattern = st.selectbox(
+        "Focus Analysis Pattern (Optional)",
+        ["general", "SQL Injection", "XSS", "Brute Force", "Path Traversal", "Command Injection", "DDoS"],
+        help="Focus the analysis on specific attack types"
+    )
 
     analyze_clicked = st.button("🔍 Analyze Logs", use_container_width=True)
 
@@ -77,41 +83,65 @@ if uploaded_files:
     logs_content = "\n".join(combined_logs)
 
 # -----------------------------
-# Analyze Logs
+# Analyze Logs - UPDATED FOR MULTI-AGENT BACKEND
 # -----------------------------
 if analyze_clicked:
     if not logs_content:
         st.error("Please upload a log file first.")
     else:
-        with st.spinner("Analyzing logs..."):
+        with st.spinner("🤖 Multi-Agent Analysis in Progress..."):
+            # UPDATED: New endpoint for multi-agent orchestrator
             response = requests.post(
                 f"{API_BASE}/analyze",
                 json={
-                    "role": role,
                     "logs": logs_content,
-                    # "detected_pattern": detected_pattern or "unknown",
+                    "role": role,
+                    "pattern": pattern,  # Focus on specific attack type
                 },
             )
 
         if response.status_code == 200:
-            st.session_state.report = response.json()
+            result = response.json()
+            
+            # Store full analysis for detailed view
+            st.session_state.full_analysis = result
+            
+            # Transform for backward compatibility with your PDF generator
+            # (Keep your existing report structure)
+            st.session_state.report = {
+                "severity": result.get("severity", "MEDIUM"),
+                "severity_score": result.get("severity_score", 5),
+                "attack_story": result.get("analysis_summary", "Analysis completed"),
+                "explanation": result.get("analysis_summary", ""),
+                "potential_impact": result.get("potential_impact", "See detailed attack analysis below"),
+                "recommendations": result.get("recommendations", ["Review detailed findings below"]),
+                "cves": result.get("cves", []),
+                "metrics": result.get("metrics", {}),
+            }
+            
             st.session_state.messages = []
-
             st.session_state.messages.append(
                 {
                     "role": "assistant",
-                    "content": "✅ Analysis completed. Ask me anything about the logs or the report.",
+                    "content": "✅ Multi-agent analysis completed! Found {} attacks, {} correlation groups. Ask me anything!".format(
+                        len(result.get("attack_details", [])),
+                        len(result.get("correlation_results", []))
+                    ),
                 }
             )
+            
+            st.success("✅ Analysis Complete!")
         else:
-            st.error(response.text)
+            st.error(f"Analysis failed: {response.text}")
 
 
 # -----------------------------
-# Professional PDF Generator
+# Professional PDF Generator (KEEP YOUR EXISTING CODE)
 # -----------------------------
 def generate_pdf(report, role):
     """Generate a professional SOC security report PDF"""
+    # KEEP YOUR EXISTING PDF GENERATION CODE HERE
+    # (I'm not repeating it to save space - use your original)
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -448,10 +478,11 @@ def generate_pdf(report, role):
 
 
 # -----------------------------
-# Report Summary
+# Report Summary (KEEP YOUR EXISTING CODE + ENHANCEMENTS)
 # -----------------------------
 if st.session_state.report:
     report = st.session_state.report
+    full_analysis = st.session_state.full_analysis
 
     st.subheader("📊 Security Overview")
 
@@ -469,7 +500,65 @@ if st.session_state.report:
         mime="application/pdf",
     )
 
-    with st.expander("🧠 Full SOC Report", expanded=True):
+    # ============ NEW: DETAILED ATTACK ANALYSIS ============
+    if full_analysis and "attack_details" in full_analysis:
+        attack_details = full_analysis["attack_details"]
+        
+        if attack_details:
+            st.subheader("🚨 Detailed Attack Analysis")
+            st.caption(f"Found {len(attack_details)} suspicious activities")
+            
+            for idx, attack in enumerate(attack_details, 1):
+                with st.expander(f"🎯 Attack #{idx}: {', '.join(attack.get('detected_patterns', ['Unknown']))}", expanded=(idx == 1)):
+                    
+                    # Display the actual log entry
+                    st.markdown("**📋 Log Entry:**")
+                    st.code(attack['log_entry'], language="log")
+                    
+                    # Display detected patterns
+                    if attack.get('detected_patterns'):
+                        st.markdown("**🔍 Detected Patterns:**")
+                        st.write(", ".join(attack['detected_patterns']))
+                    
+                    # Display AI analysis
+                    st.markdown("**🤖 AI Analysis:**")
+                    st.markdown(attack['analysis'])
+                    
+                    st.divider()
+    
+    # ============ NEW: CORRELATION & FALSE POSITIVE DETECTION ============
+    if full_analysis and "correlation_results" in full_analysis:
+        corr_results = full_analysis["correlation_results"]
+        
+        if corr_results:
+            st.subheader("🔗 Event Correlation & False Positive Detection")
+            
+            for idx, corr in enumerate(corr_results, 1):
+                fp_check = corr.get('auto_fp_detection', {})
+                is_fp = fp_check.get('likely_false_positive', False)
+                
+                # Color code based on false positive detection
+                if is_fp:
+                    st.warning(f"⚠️ Correlation Group #{idx} - Likely FALSE POSITIVE")
+                else:
+                    st.error(f"🔴 Correlation Group #{idx} - TRUE POSITIVE")
+                
+                with st.expander(f"View Details - Group #{idx}"):
+                    st.markdown(f"**Related Events:** {len(corr.get('events', []))}")
+                    
+                    if is_fp:
+                        st.success("✅ False Positive Detected")
+                        patterns = fp_check.get('detected_patterns', [])
+                        if patterns:
+                            st.write("**Patterns:**")
+                            for p in patterns:
+                                st.write(f"- {p.get('name', 'Unknown')}: {p.get('description', 'N/A')}")
+                    
+                    st.markdown("**AI Correlation Analysis:**")
+                    st.markdown(corr.get('correlation_analysis', 'N/A'))
+
+    # Keep your existing full report expander
+    with st.expander("🧠 Full SOC Report", expanded=False):
         st.markdown("**Attack Story**")
         st.write(report["attack_story"])
 
@@ -488,7 +577,7 @@ if st.session_state.report:
             st.write(", ".join(report["cves"]))
 
     # -----------------------------
-    # 📈 Visual Security Analytics
+    # 📈 Visual Security Analytics (KEEP YOUR EXISTING CODE)
     # -----------------------------
     if "metrics" in report:
         metrics = report["metrics"]
@@ -522,7 +611,7 @@ if st.session_state.report:
     st.divider()
 
     # -----------------------------
-    # ChatGPT-style Chat
+    # ChatGPT-style Chat - UPDATED ENDPOINT
     # -----------------------------
     st.subheader("💬 SOC AI Chat")
 
@@ -539,14 +628,13 @@ if st.session_state.report:
 
         with st.chat_message("assistant"):
             with st.spinner("SOC AI is thinking..."):
+                # UPDATED: New endpoint for multi-agent Q&A
                 response = requests.post(
-                    f"{API_BASE}/ask",
+                    f"{API_BASE}/api/ask-question",
                     json={
-                        "role": role,
                         "logs": logs_content,
-                        "report": report,
+                        "report": str(full_analysis) if full_analysis else str(report),
                         "question": prompt,
-                        "metrics": report.get("metrics", {}),
                     },
                 )
 
