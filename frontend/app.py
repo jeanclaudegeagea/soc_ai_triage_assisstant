@@ -630,10 +630,11 @@ if st.session_state.report:
             with st.spinner("SOC AI is thinking..."):
                 # UPDATED: New endpoint for multi-agent Q&A
                 response = requests.post(
-                    f"{API_BASE}/api/ask-question",
+                    f"{API_BASE}/ask",
                     json={
-                        "logs": logs_content,
-                        "report": str(full_analysis) if full_analysis else str(report),
+                        "role": role,
+                        "logs": logs_content[-4000:] if logs_content else "",
+                        "report": report,
                         "question": prompt,
                     },
                 )

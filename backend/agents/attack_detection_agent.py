@@ -8,7 +8,7 @@ class AttackDetectionAgent(BaseAgent):
     """
     Agent specialized in detecting and explaining security attacks
     """
-    
+
     ATTACK_ANALYSIS_PROMPT = """You are a cybersecurity expert specializing in attack pattern recognition.
 
 Analyze the following suspicious log entry and provide detailed analysis:
@@ -38,7 +38,7 @@ Provide a structured analysis with:
    - Prevent future similar attacks
    - Harden the affected system
 
-6. **Severity Level**: CRITICAL / HIGH / MEDIUM / LOW
+6. **Severity Level**: Critical / High / Medium / Low
 
 7. **IOCs (Indicators of Compromise)**: Extract relevant IPs, URLs, patterns
 
@@ -48,9 +48,9 @@ Be precise, technical, and actionable."""
         super().__init__(llm, "AttackDetectionAgent")
         self.prompt = PromptTemplate(
             template=self.ATTACK_ANALYSIS_PROMPT,
-            input_variables=["log_entry", "context"]
+            input_variables=["log_entry", "context"],
         )
-        
+
         # Attack pattern signatures
         self.attack_patterns = {
             "sql_injection": [
@@ -81,73 +81,77 @@ Be precise, technical, and actionable."""
                 r"(?i)(unusual.*outbound|large.*data.*transfer|exfiltration)",
             ],
         }
-    
+
     def execute(self, log_entry: str, context: str = "") -> Dict[str, Any]:
         """
         Analyze a log entry for attacks
-        
+
         Args:
             log_entry: Single log entry to analyze
             context: Additional context information
-            
+
         Returns:
             Detailed attack analysis
         """
         self.log_activity("Analyzing potential attack in log entry")
-        
+
         # First, detect attack type
         detected_attacks = self.detect_attack_type(log_entry)
-        
+
         # Get detailed AI analysis
         chain = self.prompt | self.llm
-        result = chain.invoke({
-            "log_entry": log_entry,
-            "context": f"{context}\nDetected patterns: {', '.join(detected_attacks) if detected_attacks else 'Unknown'}"
-        })
-        
+        result = chain.invoke(
+            {
+                "log_entry": log_entry,
+                "context": f"{context}\nDetected patterns: {', '.join(detected_attacks) if detected_attacks else 'Unknown'}",
+            }
+        )
+
         return {
             "log_entry": log_entry,
             "detected_patterns": detected_attacks,
-            "analysis": result.content
+            "analysis": result.content,
         }
-    
+
     def detect_attack_type(self, log_entry: str) -> List[str]:
         """
         Detect attack types using pattern matching
-        
+
         Args:
             log_entry: Log entry to check
-            
+
         Returns:
             List of detected attack types
         """
         detected = []
-        
+
         for attack_type, patterns in self.attack_patterns.items():
             for pattern in patterns:
                 if re.search(pattern, log_entry):
                     detected.append(attack_type)
                     break
-        
+
         return detected
-    
-    def batch_analyze(self, log_entries: List[str], context: str = "") -> List[Dict[str, Any]]:
+
+    def batch_analyze(
+        self, log_entries: List[str], context: str = ""
+    ) -> List[Dict[str, Any]]:
         """
         Analyze multiple log entries for attacks
-        
+
         Args:
             log_entries: List of log entries
             context: Additional context
-            
+
         Returns:
             List of attack analyses
         """
         results = []
-        
+
         for entry in log_entries:
             # Only analyze entries that look suspicious
             if self.detect_attack_type(entry):
                 analysis = self.execute(entry, context)
                 results.append(analysis)
-        
+
         return results

@@ -6,7 +6,7 @@ class ChatAgent(BaseAgent):
     """
     Agent for answering questions about security logs and reports
     """
-    
+
     CHAT_PROMPT = """You are a helpful SOC analyst assistant.
 
 Role: {role}
@@ -29,30 +29,27 @@ Always cite specific log entries or report sections when answering."""
         super().__init__(llm, "ChatAgent")
         self.prompt = PromptTemplate(
             template=self.CHAT_PROMPT,
-            input_variables=["role", "logs", "report", "question"]
+            input_variables=["role", "logs", "report", "question"],
         )
-    
+
     def execute(self, role: str, logs: str, report: str, question: str) -> str:
         """
         Answer questions about logs and analysis
-        
+
         Args:
             role: Analyst role
             logs: Original log data
             report: Analysis report
             question: User question
-            
+
         Returns:
             Answer to the question
         """
         self.log_activity(f"Answering question: {question[:50]}...")
-        
+
         chain = self.prompt | self.llm
-        result = chain.invoke({
-            "role": role,
-            "logs": logs,
-            "report": report,
-            "question": question
-        })
-        
+        result = chain.invoke(
+            {"role": role, "logs": logs, "report": report, "question": question}
+        )
+
         return result.content
