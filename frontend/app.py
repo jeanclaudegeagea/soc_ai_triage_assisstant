@@ -18,6 +18,7 @@ from reportlab.platypus import (
 from reportlab.lib.units import inch
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from datetime import datetime
+from xml.sax.saxutils import escape 
 
 load_dotenv()
 
@@ -398,7 +399,7 @@ def generate_pdf(report, role):
         rec_data.append(
             [
                 str(idx),
-                Paragraph(rec, body_style),
+                Paragraph(escape(rec), body_style),
                 Paragraph(
                     f"<b>{priority}</b>",
                     ParagraphStyle(
