@@ -22,6 +22,16 @@ orchestrator = SOCOrchestrator(llm)
 router = APIRouter()
 
 
+def _sanitize_correlation_results_for_client(correlation_results):
+    sanitized = []
+    for corr in correlation_results or []:
+        item = dict(corr)
+        item.pop("correlation_analysis", None)
+        item.pop("correlation_structured", None)
+        sanitized.append(item)
+    return sanitized
+
+
 def extract_json(text: str) -> dict:
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if not match:
@@ -66,11 +76,22 @@ async def analyze_endpoint(request: dict):
     try:
         logs = request.get("logs", "")
         role = request.get("role", "SOC Analyst")
+        files = request.get("files", [])
+
+        file_marker_count = len(re.findall(r"===== FILE:", logs or ""))
+        if (isinstance(files, list) and len(files) > 1) or file_marker_count > 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Only one log file is supported per analysis request.",
+            )
 
         # Use new orchestrator
         results = orchestrator.analyze_logs(logs=logs, role=role, pattern="general")
 
         # Format response to match your old structure
+        sanitized_corr = _sanitize_correlation_results_for_client(
+            results["correlation_results"]
+        )
         return {
             "status": "success",
             "severity": results["severity"],
@@ -81,8 +102,9 @@ async def analyze_endpoint(request: dict):
             "recommendations": results["recommendations"],
             "cves": results["cves"],
             "metrics": results["metrics"],
+            "mitre_summary": results.get("mitre_summary", {}),
             "attack_details": results["attack_details"],
-            "correlation_results": results["correlation_results"],
+            "correlation_results": sanitized_corr,
         }
 
     except Exception as e:

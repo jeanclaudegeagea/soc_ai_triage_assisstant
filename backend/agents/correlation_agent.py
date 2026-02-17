@@ -2,7 +2,9 @@ from typing import Dict, Any, List
 from langchain_core.prompts import PromptTemplate
 from agents.base_agent import BaseAgent
 from collections import defaultdict
+from datetime import datetime
 import re
+import json
 
 
 class CorrelationAgent(BaseAgent):
@@ -37,7 +39,13 @@ Provide structured JSON output:
     "reasoning": "<detailed explanation>",
     "attack_campaign": "<name if true positive>",
     "recommendations": ["<action1>", "<action2>"]
-}}"""
+}}
+
+Output rules:
+- Return ONLY valid JSON.
+- Do not add markdown, prose, or code fences.
+- If uncertain, set verdict to FALSE_POSITIVE only with clear evidence; otherwise favor TRUE_POSITIVE with lower confidence and explicit reasoning.
+"""
 
     def __init__(self, llm):
         super().__init__(llm, "CorrelationAgent")
@@ -110,12 +118,99 @@ Provide structured JSON output:
             }
         )
 
+        raw_analysis = result.content
+        parsed = self._extract_json_block(raw_analysis)
+        normalized = self._normalize_structured_output(parsed, fp_check, raw_analysis)
+
         return {
             "events": events,
-            "correlation_analysis": result.content,
+            "correlation_analysis": raw_analysis,
+            "correlation_structured": normalized,
+            "verdict": normalized["verdict"],
+            "confidence": normalized["confidence"],
+            "reasoning": normalized["reasoning"],
+            "attack_campaign": normalized["attack_campaign"],
+            "recommendations": normalized["recommendations"],
             "auto_fp_detection": fp_check,
             "time_correlation": time_info,
             "ip_correlation": ip_info,
+        }
+
+    def _extract_json_block(self, text: str) -> Dict[str, Any]:
+        if not text:
+            return {}
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if not match:
+            return {}
+        try:
+            parsed = json.loads(match.group(0))
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+
+    def _normalize_verdict(self, verdict: str) -> str:
+        value = (verdict or "").strip().upper().replace(" ", "_")
+        if value in ["TRUE_POSITIVE", "TP", "TRUE"]:
+            return "TRUE_POSITIVE"
+        if value in ["FALSE_POSITIVE", "FP", "FALSE"]:
+            return "FALSE_POSITIVE"
+        return "REVIEW_NEEDED"
+
+    def _normalize_structured_output(
+        self, parsed: Dict[str, Any], fp_check: Dict[str, Any], raw_analysis: str
+    ) -> Dict[str, Any]:
+        verdict = self._normalize_verdict(str(parsed.get("verdict", "")))
+
+        if verdict == "REVIEW_NEEDED":
+            if fp_check.get("likely_false_positive"):
+                verdict = "FALSE_POSITIVE"
+            elif "TRUE_POSITIVE" in (raw_analysis or "").upper():
+                verdict = "TRUE_POSITIVE"
+            elif "FALSE_POSITIVE" in (raw_analysis or "").upper():
+                verdict = "FALSE_POSITIVE"
+
+        confidence = parsed.get("confidence", 0)
+        try:
+            confidence = int(float(confidence))
+        except Exception:
+            confidence = 0
+        confidence = max(0, min(100, confidence))
+
+        reasoning = str(parsed.get("reasoning", "")).strip()
+        if not reasoning:
+            reasoning = "Correlation output did not contain structured reasoning."
+
+        attack_campaign = str(parsed.get("attack_campaign", "")).strip()
+        if not attack_campaign:
+            attack_campaign = "N/A"
+
+        recommendations = parsed.get("recommendations", [])
+        if not isinstance(recommendations, list):
+            recommendations = []
+        recommendations = [str(item).strip() for item in recommendations if str(item).strip()]
+
+        if not recommendations:
+            if verdict == "TRUE_POSITIVE":
+                recommendations = [
+                    "Escalate this group to incident response for containment and validation.",
+                    "Block or rate-limit implicated source IPs after validation.",
+                ]
+            elif verdict == "FALSE_POSITIVE":
+                recommendations = [
+                    "Tune detection rules for this benign activity pattern.",
+                    "Document this activity as expected in SOC runbooks.",
+                ]
+            else:
+                recommendations = [
+                    "Collect additional telemetry before assigning final verdict.",
+                ]
+
+        return {
+            "verdict": verdict,
+            "confidence": confidence,
+            "reasoning": reasoning,
+            "attack_campaign": attack_campaign,
+            "recommendations": recommendations,
         }
 
     def _extract_time_correlation(self, events: List[str]) -> str:
@@ -201,17 +296,86 @@ Provide structured JSON output:
         Returns:
             List of event groups
         """
-        # This is a simplified grouping by IP
-        # In production, you'd use more sophisticated correlation
+        if not all_events:
+            return []
 
+        # Stage 1: group by source IP
         ip_groups = defaultdict(list)
-
         for event in all_events:
-            ip_match = re.search(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", event)
-            if ip_match:
-                ip = ip_match.group()
-                ip_groups[ip].append(event)
-            else:
-                ip_groups["unknown"].append(event)
+            ip = self._extract_primary_ip(event) or "unknown"
+            ip_groups[ip].append(event)
 
-        return [events for events in ip_groups.values() if len(events) > 1]
+        grouped: List[List[str]] = []
+
+        # Stage 2: within each IP bucket, split by timestamp proximity
+        for ip, events in ip_groups.items():
+            if len(events) < 2:
+                continue
+
+            if ip == "unknown":
+                # Unknown source: keep together only if there are repeated similar signatures
+                signature_groups = defaultdict(list)
+                for event in events:
+                    signature_groups[self._event_signature(event)].append(event)
+                grouped.extend(
+                    [g for g in signature_groups.values() if len(g) > 1]
+                )
+                continue
+
+            records = []
+            for event in events:
+                records.append(
+                    {
+                        "event": event,
+                        "timestamp": self._extract_timestamp(event),
+                    }
+                )
+
+            with_time = [r for r in records if r["timestamp"] is not None]
+            no_time = [r for r in records if r["timestamp"] is None]
+
+            if with_time:
+                with_time.sort(key=lambda x: x["timestamp"])
+                current_group = [with_time[0]["event"]]
+                last_ts = with_time[0]["timestamp"]
+
+                for record in with_time[1:]:
+                    delta = (record["timestamp"] - last_ts).total_seconds()
+                    if delta <= window_seconds:
+                        current_group.append(record["event"])
+                    else:
+                        if len(current_group) > 1:
+                            grouped.append(current_group)
+                        current_group = [record["event"]]
+                    last_ts = record["timestamp"]
+
+                if len(current_group) > 1:
+                    grouped.append(current_group)
+
+            # Add no-timestamp events as a fallback group if repetitive
+            if len(no_time) > 1:
+                grouped.append([r["event"] for r in no_time])
+
+        # Sort bigger groups first for better prioritization downstream
+        grouped.sort(key=lambda g: len(g), reverse=True)
+        return grouped
+
+    def _extract_timestamp(self, event: str):
+        match = re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", event)
+        if not match:
+            return None
+        try:
+            return datetime.strptime(match.group(), "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return None
+
+    def _extract_primary_ip(self, event: str) -> str:
+        match = re.search(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", event)
+        return match.group() if match else ""
+
+    def _event_signature(self, event: str) -> str:
+        normalized = event.lower()
+        normalized = re.sub(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", "<ip>", normalized)
+        normalized = re.sub(r"\d", "0", normalized)
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        return normalized[:120]

@@ -8,6 +8,7 @@ from agents import (
     ChatAgent,
     ReportGenerationAgent,
 )
+from services.mitre_mapper import MitreMapper
 
 
 class SOCOrchestrator:
@@ -30,6 +31,7 @@ class SOCOrchestrator:
         self.correlation_agent = CorrelationAgent(llm)
         self.chat_agent = ChatAgent(llm)
         self.report_agent = ReportGenerationAgent(llm)
+        self.mitre_mapper = MitreMapper()
 
         print("[Orchestrator] All agents initialized")
 
@@ -83,6 +85,13 @@ class SOCOrchestrator:
         else:
             print("   ℹ No suspicious log entries detected")
 
+        for attack in attack_details:
+            attack["mitre_attack"] = self.mitre_mapper.map_attack(
+                log_entry=attack.get("log_entry", ""),
+                detected_patterns=attack.get("detected_patterns", []),
+                analysis=attack.get("analysis", ""),
+            )
+
         results["attack_details"] = attack_details
 
         # Step 3: Correlation and false positive detection
@@ -91,7 +100,9 @@ class SOCOrchestrator:
 
         if suspicious_logs:
             # Group related events
-            event_groups = self.correlation_agent.group_related_events(suspicious_logs)
+            event_groups = self.correlation_agent.group_related_events(
+                suspicious_logs, window_seconds=300
+            )
 
             print(f"   ✓ Identified {len(event_groups)} correlation groups")
 
@@ -99,6 +110,9 @@ class SOCOrchestrator:
             for group in event_groups[:10]:  # Limit to top 10 groups
                 corr_result = self.correlation_agent.execute(
                     group, metadata={"system_info": "Production environment"}
+                )
+                corr_result["mitre_attack"] = self.mitre_mapper.map_correlation_group(
+                    corr_result.get("events", [])
                 )
                 correlation_results.append(corr_result)
 
@@ -131,6 +145,7 @@ class SOCOrchestrator:
         results["recommendations"] = recommendations
         results["cves"] = cves
         results["potential_impact"] = potential_impact
+        results["mitre_summary"] = self.mitre_mapper.summarize(attack_details)
 
         # Step 4: Generate comprehensive report
         print("\n📄 Step 4: Generating comprehensive security report...")
@@ -165,13 +180,17 @@ class SOCOrchestrator:
 
         for corr in correlation_results:
             corr_text = (corr.get("correlation_analysis") or "").upper()
+            verdict = (
+                str(corr.get("verdict") or "")
+                or str((corr.get("correlation_structured") or {}).get("verdict") or "")
+            ).upper()
             auto_fp = corr.get("auto_fp_detection", {}).get(
                 "likely_false_positive", False
             )
 
-            if "TRUE_POSITIVE" in corr_text:
+            if "TRUE_POSITIVE" in verdict or "TRUE_POSITIVE" in corr_text:
                 true_positive_groups += 1
-            if "FALSE_POSITIVE" in corr_text or auto_fp:
+            if "FALSE_POSITIVE" in verdict or "FALSE_POSITIVE" in corr_text or auto_fp:
                 false_positive_groups += 1
 
         score = min(
@@ -209,6 +228,18 @@ class SOCOrchestrator:
             )
 
         for corr in correlation_results:
+            struct = corr.get("correlation_structured", {})
+            direct_recs = corr.get("recommendations", [])
+            if isinstance(direct_recs, list):
+                recs.extend(
+                    [str(item).strip() for item in direct_recs if str(item).strip()]
+                )
+            struct_recs = struct.get("recommendations", [])
+            if isinstance(struct_recs, list):
+                recs.extend(
+                    [str(item).strip() for item in struct_recs if str(item).strip()]
+                )
+
             recs.extend(
                 self._parse_recommendations_from_text(
                     corr.get("correlation_analysis", "")
@@ -363,3 +394,5 @@ class SOCOrchestrator:
         print(f"✓ Data exported to: {json_file}")
 
         return {"report_file": report_file, "json_file": json_file}
+
+

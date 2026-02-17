@@ -37,14 +37,25 @@ if "report_pdf_bytes" not in st.session_state:
 with st.sidebar:
     st.header("⚙️ Configuration")
 
-    role = st.text_input(
+    role = st.selectbox(
         "Select your role",
-        value="SOC Analyst",
-        placeholder="Explanation adapts to this role",
+        [
+            "SOC Analyst",
+            "Security Engineer",
+            "Incident Responder",
+            "Threat Hunter",
+            "SOC Manager",
+            "Blue Team Lead",
+            "CISO",
+            "IT Manager",
+            "Executive Leadership",
+        ],
+        index=0,
+        help="Analysis and recommendations are adapted to your selected role.",
     )
 
-    uploaded_files = st.file_uploader(
-        "Upload log files", type=["txt", "log", "csv"], accept_multiple_files=True
+    uploaded_file = st.file_uploader(
+        "Upload log file", type=["txt", "log", "csv"], accept_multiple_files=False
     )
 
     analyze_clicked = st.button("🔍 Analyze Logs", use_container_width=True)
@@ -53,17 +64,12 @@ with st.sidebar:
 # Read Logs
 # -----------------------------
 logs_content = ""
-if uploaded_files:
-    combined_logs = []
-
-    for file in uploaded_files:
-        try:
-            content = file.read().decode("utf-8", errors="ignore")
-            combined_logs.append(f"\n\n===== FILE: {file.name} =====\n{content}")
-        except Exception:
-            st.warning(f"Could not read file: {file.name}")
-
-    logs_content = "\n".join(combined_logs)
+if uploaded_file:
+    try:
+        content = uploaded_file.read().decode("utf-8", errors="ignore")
+        logs_content = f"\n\n===== FILE: {uploaded_file.name} =====\n{content}"
+    except Exception:
+        st.warning(f"Could not read file: {uploaded_file.name}")
 
 # -----------------------------
 # Analyze Logs - UPDATED FOR MULTI-AGENT BACKEND
@@ -153,6 +159,14 @@ if st.session_state.report:
     col1.metric("Severity", report["severity"])
     col2.metric("Severity Score", report["severity_score"])
     col3.metric("CVEs Found", len(report["cves"]))
+    mitre_summary = (full_analysis or {}).get("mitre_summary", {})
+    mitre_techniques = mitre_summary.get("techniques", [])
+    if mitre_techniques:
+        st.markdown("**MITRE ATT&CK Mapping Summary**")
+        for row in mitre_techniques[:8]:
+            st.markdown(
+                f"- `{row.get('technique_id', 'N/A')}` {row.get('technique_name', 'Unknown')} ({row.get('tactic', 'Unknown')}) x{row.get('count', 0)}"
+            )
 
     # 📄 PDF Download (Generated in backend)
     if st.session_state.report_pdf_bytes is None:
@@ -212,6 +226,14 @@ if st.session_state.report:
                         st.markdown("**🔍 Detected Patterns:**")
                         st.write(", ".join(attack["detected_patterns"]))
 
+                    mitre_map = attack.get("mitre_attack", [])
+                    if mitre_map:
+                        st.markdown("**MITRE ATT&CK Mapping:**")
+                        for m in mitre_map:
+                            st.markdown(
+                                f"- `{m.get('technique_id', 'N/A')}` {m.get('technique_name', 'Unknown')} | Tactic: {m.get('tactic', 'Unknown')} | Confidence: {m.get('confidence', 0)}%"
+                            )
+
                     # Display AI analysis
                     st.markdown("**🤖 AI Analysis:**")
                     st.markdown(attack["analysis"])
@@ -223,33 +245,58 @@ if st.session_state.report:
         corr_results = full_analysis["correlation_results"]
 
         if corr_results:
-            st.subheader("🔗 Event Correlation & False Positive Detection")
+            st.subheader("Event Correlation & False Positive Detection")
 
             for idx, corr in enumerate(corr_results, 1):
                 fp_check = corr.get("auto_fp_detection", {})
-                is_fp = fp_check.get("likely_false_positive", False)
+                verdict = (corr.get("verdict") or "").upper()
+                confidence = corr.get("confidence", 0)
 
-                # Color code based on false positive detection
-                if is_fp:
-                    st.warning(f"⚠️ Correlation Group #{idx} - Likely FALSE POSITIVE")
+                if verdict == "FALSE_POSITIVE":
+                    st.success(
+                        f"Correlation Group #{idx} - FALSE POSITIVE ({confidence}% confidence)"
+                    )
+                elif verdict == "TRUE_POSITIVE":
+                    st.error(
+                        f"Correlation Group #{idx} - TRUE POSITIVE ({confidence}% confidence)"
+                    )
                 else:
-                    st.error(f"🔴 Correlation Group #{idx} - TRUE POSITIVE")
+                    st.warning(
+                        f"Correlation Group #{idx} - REVIEW NEEDED ({confidence}% confidence)"
+                    )
 
                 with st.expander(f"View Details - Group #{idx}"):
                     st.markdown(f"**Related Events:** {len(corr.get('events', []))}")
+                    st.markdown(f"**Verdict:** `{verdict or 'REVIEW_NEEDED'}`")
+                    st.markdown(f"**Confidence:** `{confidence}%`")
+                    st.markdown(
+                        f"**Attack Campaign:** {corr.get('attack_campaign', 'N/A')}"
+                    )
 
-                    if is_fp:
-                        st.success("✅ False Positive Detected")
-                        patterns = fp_check.get("detected_patterns", [])
-                        if patterns:
-                            st.write("**Patterns:**")
-                            for p in patterns:
-                                st.write(
-                                    f"- {p.get('name', 'Unknown')}: {p.get('description', 'N/A')}"
-                                )
+                    st.markdown("**Reasoning:**")
+                    st.write(corr.get("reasoning", "N/A"))
 
-                    st.markdown("**AI Correlation Analysis:**")
-                    st.markdown(corr.get("correlation_analysis", "N/A"))
+                    patterns = fp_check.get("detected_patterns", [])
+                    if patterns:
+                        st.write("**Auto False-Positive Pattern Matches:**")
+                        for p in patterns:
+                            st.write(
+                                f"- {p.get('name', 'Unknown')}: {p.get('description', 'N/A')}"
+                            )
+
+                    recs = corr.get("recommendations", [])
+                    if recs:
+                        st.markdown("**Recommended Actions:**")
+                        for rec in recs:
+                            st.markdown(f"- {rec}")
+
+                    corr_mitre = corr.get("mitre_attack", [])
+                    if corr_mitre:
+                        st.markdown("**MITRE ATT&CK Mapping:**")
+                        for m in corr_mitre:
+                            st.markdown(
+                                f"- `{m.get('technique_id', 'N/A')}` {m.get('technique_name', 'Unknown')} ({m.get('tactic', 'Unknown')})"
+                            )
 
     # -----------------------------
     # 📈 Visual Security Analytics (KEEP YOUR EXISTING CODE)
@@ -322,3 +369,6 @@ if st.session_state.report:
                 st.markdown(answer)
 
         st.session_state.messages.append({"role": "assistant", "content": answer})
+
+
+
