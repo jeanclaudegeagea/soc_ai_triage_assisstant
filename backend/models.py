@@ -28,3 +28,10 @@ class AskRequest(BaseModel):
 
 class AskResponse(BaseModel):
     answer: str
+
+
+class PDFReportRequest(BaseModel):
+    role: str = "SOC Analyst"
+    report: dict
+    full_analysis: Optional[dict] = None
+    filename: Optional[str] = "soc_detailed_security_report.pdf"

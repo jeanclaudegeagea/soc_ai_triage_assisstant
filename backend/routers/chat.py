@@ -3,9 +3,10 @@ import re
 
 # from fastapi import APIRouter, HTTPException
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 
 # from models import AnalyzeRequest, AnalyzeResponse, AskRequest, AskResponse
-from models import AskRequest, AskResponse
+from models import AskRequest, AskResponse, PDFReportRequest
 
 # from services.llm import analyze_logs, ask_question
 from services.llm import ask_question
@@ -14,6 +15,7 @@ from ethics.guardrails import sanitize_output
 # from services.log_metrics import extract_metrics
 from services.orchestrator import SOCOrchestrator
 from services.llm import llm
+from services.pdf_report import build_detailed_soc_pdf
 
 orchestrator = SOCOrchestrator(llm)
 
@@ -85,3 +87,22 @@ async def analyze_endpoint(request: dict):
 
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+
+@router.post("/report/pdf")
+async def generate_pdf_report(payload: PDFReportRequest):
+    try:
+        pdf_buffer = build_detailed_soc_pdf(
+            report=payload.report,
+            role=payload.role,
+            full_analysis=payload.full_analysis,
+        )
+        filename = payload.filename or "soc_detailed_security_report.pdf"
+        headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+        return StreamingResponse(
+            pdf_buffer,
+            media_type="application/pdf",
+            headers=headers,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate PDF report: {e}")
